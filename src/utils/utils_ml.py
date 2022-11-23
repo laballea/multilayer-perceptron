@@ -24,7 +24,7 @@ def data_spliter(x, y, proportion, y_2d=False):
     return (x_train, x_test, y_train, y_test)
 
 
-def cross_validation(x, y, K):
+def cross_validation(x, y, K, y_2d=False):
     """
     split data into n parts
     """
@@ -41,7 +41,10 @@ def cross_validation(x, y, K):
         sample = int((1 / K) * N)
         test = arr[(sample * n):(sample * (n + 1))]
         train = np.concatenate([arr[0:(sample * n)], arr[(sample * (n + 1)):N]])
-        x_train, y_train, x_test, y_test = train[:, :x.shape[1]], train[:, x.shape[1]].reshape(-1, 1), test[:, :x.shape[1]], test[:, x.shape[1]].reshape(-1, 1),
+        x_train, y_train, x_test, y_test = train[:, :x.shape[1]], train[:, x.shape[1]], test[:, :x.shape[1]], test[:, x.shape[1]],
+        
+        if (y_2d):
+            y_train, y_test = y_train.reshape(-1, 1), y_test.reshape(-1, 1)
         yield (x_train, y_train, x_test, y_test)
 
 

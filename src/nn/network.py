@@ -2,6 +2,7 @@ import numpy as np
 from tqdm import tqdm
 from utils.utils_ml import not_zero
 import sys
+import time
 
 
 class Network:
@@ -109,6 +110,7 @@ class Network:
 
             self._update(lr=lr)
             self.total_it += 1
+            time.sleep(0.01)
 
     def _init_architect(self, data):
         """
@@ -141,6 +143,15 @@ class Network:
                         self.architecture[i]['input_dim'])),
                 'b':np.zeros((1, self.architecture[i]['output_dim']))})
     
+    def reset_weights(self):
+        for i in range(len(self.architecture)):
+            self.params[i] = {
+                'W':np.random.uniform(low=-1, high=1, 
+                size=(self.architecture[i]['output_dim'], 
+                        self.architecture[i]['input_dim'])),
+                'b':np.zeros((1, self.architecture[i]['output_dim']))
+            }
+
     def compile(self, data, params):
         """
         Initialize model parameters depending of input shape and architecture

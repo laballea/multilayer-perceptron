@@ -92,11 +92,15 @@ def compile_models(yml_file, X):
 
 
 def train(yml_file, models, X, Y, max_iter, lr=0.1):
-    X = normalize(X)
-    x_train, x_test, y_train, y_test = data_spliter(X, Y, 0.8)
     for model in tqdm(models, leave=False):
         yml_model = yml_file["models"][model.name]
-        model.train(train=[x_train, y_train.astype(int)], test=[x_test, y_test.astype(int)], epochs=max_iter, lr=lr)
+        for k_folds in cross_validation(X, Y, 10):
+            x_train, y_train, x_test, y_test = k_folds
+            x_train = normalize(x_train)
+            x_test = normalize(x_test)
+            model.reset_weights()
+            model.train(train=[x_train, y_train.astype(int)], test=[x_test, y_test.astype(int)], epochs=max_iter, lr=lr)
+            time.sleep(1)
         yml_model["accuracy_hist"] += model.accuracy
         yml_model["loss_hist"] += model.loss
         yml_model["total_it"] += int(model.total_it)
@@ -104,11 +108,15 @@ def train(yml_file, models, X, Y, max_iter, lr=0.1):
         for el in model.params:
             params.append({"W":el["W"].tolist(), "b":el["b"].tolist()})
         yml_model["params"] = params
-        time.sleep(max_iter / 1000)
+        time.sleep(0.5)
 
 
-def find_best(yml_file):
-    accuracy_list = np.array([model["accuracy_hist"][-1] if len(model["accuracy_hist"]) > 0 else 0 for model in yml_file["models"].values()])
+def find_best(yml_file, max_iter):
+    accuracy_list = []
+    for model in yml_file["models"].values():
+        size = len(model["accuracy_hist"])
+        accuracy_list.append(sum(np.array(model["accuracy_hist"][max_iter:size:max_iter])))
+        # np.array([model["accuracy_hist"][:len(model["accuracy_hist"]):len(model["accuracy_hist"])/10] if len(model["accuracy_hist"]) > 0 else 0 )
     name_list = np.array([model["name"] for model in yml_file["models"].values()])
     best = name_list[np.argmax(accuracy_list, axis=0)]
     yml_file["data"]["best_model"] = str(best)
@@ -178,7 +186,7 @@ def main(argv):
         if opt == '--train':
             models = compile_models(yml_file, X)
             train(yml_file, models, X, Y_n, max_iter, learning_rate)
-            find_best(yml_file)
+            find_best(yml_file, max_iter)
             with open("models.yml", 'w') as outfile:
                 yaml.dump(yml_file, outfile, default_flow_style=None)
         if opt == '--display':
