@@ -21,7 +21,7 @@ def data_spliter(x, y, proportion, y_2d=False):
     x_train, x_test, y_train, y_test = np.array(X[:sample, :]), np.array(X[sample:, :]), np.array(Y[:sample, ]), np.array(Y[sample:, ])
     if (y_2d):
         y_train, y_test = y_train.reshape(-1, 1), y_test.reshape(-1, 1)
-    return (x_train, x_test, y_train, y_test)
+    return (x_train, y_train, x_test, y_test)
 
 
 def cross_validation(x, y, K, y_2d=False):

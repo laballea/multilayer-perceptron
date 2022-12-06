@@ -1,12 +1,42 @@
 import numpy as np
 from tqdm import tqdm
-from utils.utils_ml import not_zero
 import sys
-import time
 
+from utils.utils_ml import not_zero
+from nn.dense import DenseLayer
+
+class AdamOptim():
+    #https://towardsdatascience.com/how-to-implement-an-adam-optimizer-from-scratch-76e7b217f1cc
+    #https://www.youtube.com/watch?v=JXQT_vxqwIs
+    def __init__(self, beta1: float=0.9, beta2: float=0.999, eps: float=1e-15):
+        self.m_dw, self.v_dw = 0, 0
+        self.m_db, self.v_db = 0, 0
+        self.beta1 = beta1
+        self.beta2 = beta2
+        self.eps = eps
+        self.t = 0
+    
+    def _update_wb(self, w: np.ndarray, b:np.ndarray, dw: np.ndarray, db: np.ndarray, lr: float):
+        self.t += 1
+        self.m_dw = self.beta1 * self.m_dw + (1 - self.beta1) * dw
+        self.m_db = self.beta1 * self.m_db + (1 - self.beta1) * db
+
+        self.v_dw = self.beta2 * self.v_dw + (1 - self.beta2) * (dw ** 2)
+        self.v_db = self.beta2 * self.v_db + (1 - self.beta2) * (db ** 2)
+
+        m_dw_corr = self.m_dw / (1 - self.beta1 ** self.t)
+        m_db_corr = self.m_db / (1 - self.beta1 ** self.t)
+        v_dw_corr = self.v_dw / (1 - self.beta2 ** self.t)
+        v_db_corr = self.v_db / (1 - self.beta2 ** self.t)
+
+        w = w - lr * (m_dw_corr / (np.sqrt(v_dw_corr + self.eps)))
+        b = b - lr * (m_db_corr / (np.sqrt(v_db_corr + self.eps)))
+        return w, b
 
 class Network:
     def __init__(self, name=None):
+        self.supported_opt = ["basic", "adam"]
+
         self.layerSize = []
         self.network = [] ## layers
         self.architecture = [] ## mapping input neurons --> output neurons
@@ -18,8 +48,10 @@ class Network:
         self.accuracy = []  # store accuracy
         self.total_it = 0
         self.name = name
+        self.opt = "basic"
+
         
-    def add(self, layer):
+    def add(self, layer: DenseLayer):
         """
         Add layers to the network
         """
@@ -67,13 +99,21 @@ class Network:
             dA_prev, dW_curr, db_curr = layer.backward(dA_curr, W_curr, Z_curr, A_prev, act_name)
             self.gradients.append({'dW':dW_curr, 'db':db_curr})
 
+    def basic_update_wb(self, w: np.ndarray, b:np.ndarray, dw: np.ndarray, db: np.ndarray, lr: float):
+        w = w - lr * dw
+        b = b - lr * db
+        return w, b
+
     def _update(self, lr=0.01):
         """
         Update the model parameters --> lr * gradient
         """
         for idx, layer in enumerate(self.network):
-            self.params[idx]['W'] -= lr * list(reversed(self.gradients))[idx]['dW'].T
-            self.params[idx]['b'] -= lr * list(reversed(self.gradients))[idx]['db']
+            dw, db = list(reversed(self.gradients))[idx]['dW'].T, list(reversed(self.gradients))[idx]['db']
+            w, b = self.params[idx]['W'], self.params[idx]['b']
+            new_w, new_b = self.params[idx]['opt'](w, b, dw, db, lr)
+            self.params[idx]['W'] = new_w
+            self.params[idx]['b'] = new_b
 
     def _get_accuracy(self, predicted, actual):
         """
@@ -101,16 +141,14 @@ class Network:
         X_test, Y_test = test[0], test[1]
         for i in tqdm(range(epochs), disable=True):
             yhat_train = self._forwardprop(X_train)  # calculate prediction
-            yhat_test = self._forwardprop(X_test, test=True)  # calculate prediction for test
+            self._backprop(predicted=yhat_train, actual=Y_train)
 
-            #evaluate on test set
+            yhat_test = self._forwardprop(X_test, test=True)  # calculate prediction for test
             self.accuracy.append(self._get_accuracy(predicted=yhat_test, actual=Y_test))  # get accuracy
             self.loss.append(self._calculate_loss(predicted=yhat_test, actual=Y_test))  # get loss
-            self._backprop(predicted=yhat_train, actual=Y_train)
 
             self._update(lr=lr)
             self.total_it += 1
-            time.sleep(0.01)
 
     def _init_architect(self, data):
         """
@@ -138,35 +176,53 @@ class Network:
         self.total_it = 0
         for i in range(len(self.architecture)):
             self.params.append({
-                'W':np.random.uniform(low=-1, high=1, 
-                size=(self.architecture[i]['output_dim'], 
+                'W':np.random.uniform(low=-1, high=1,
+                size=(self.architecture[i]['output_dim'],
                         self.architecture[i]['input_dim'])),
-                'b':np.zeros((1, self.architecture[i]['output_dim']))})
+                'b':np.zeros((1, self.architecture[i]['output_dim'])),
+                'opt':self.compile_opt()
+            })
     
     def reset_weights(self):
         for i in range(len(self.architecture)):
             self.params[i] = {
                 'W':np.random.uniform(low=-1, high=1, 
-                size=(self.architecture[i]['output_dim'], 
+                size=(self.architecture[i]['output_dim'],
                         self.architecture[i]['input_dim'])),
-                'b':np.zeros((1, self.architecture[i]['output_dim']))
+                'b':np.zeros((1, self.architecture[i]['output_dim'])),
+                'opt':self.compile_opt()
             }
 
-    def compile(self, data, params):
+    def compile(self, data, params, optimizer="basic"):
         """
         Initialize model parameters depending of input shape and architecture
         """
         self.layerSize.insert(0, data.shape[1])
         self._init_architect(data)
-
+        if optimizer in self.supported_opt:
+            self.opt = optimizer
         np.random.seed(99)
         if (len(params) == 0):
             for i in range(len(self.architecture)):
                 self.params.append({
                     'W':np.random.uniform(low=-1, high=1, 
-                    size=(self.architecture[i]['output_dim'], 
+                    size=(self.architecture[i]['output_dim'],
                             self.architecture[i]['input_dim'])),
-                    'b':np.zeros((1, self.architecture[i]['output_dim']))})
+                    'b':np.zeros((1, self.architecture[i]['output_dim'])),
+                    'opt':self.compile_opt()
+                })
         else:
-            self.params = params
+            for param in params:
+                self.params.append({
+                    'W':param["W"],
+                    'b':param["b"],
+                    'opt':self.compile_opt()
+                })
+            # self.params = params
         return self
+
+    def compile_opt(self):
+        if self.opt == "basic":
+            return self.basic_update_wb
+        elif self.opt == "adam":
+            return AdamOptim()._update_wb

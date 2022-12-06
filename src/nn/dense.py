@@ -1,6 +1,19 @@
 import numpy as np
+
 from .activation import act_funct, der_funct
-import sys
+
+def intercept_(x):
+    """
+    add one columns to x
+    """
+    try:
+        if (not isinstance(x, np.ndarray)):
+            print("intercept_ invalid type")
+            return None
+        return np.concatenate([np.ones(len(x)).reshape(-1, 1), x], axis=1)
+    except Exception as inst:
+        print(inst)
+        return None
 
 class DenseLayer:
     def __init__(self, neurons, act_name="relu"):
@@ -12,7 +25,6 @@ class DenseLayer:
         Single Layer Forward Propagation
         """
         Z_curr = np.dot(inputs, weights.T) + bias
-
         A_curr = act_funct[act_name](inputs=Z_curr)
         return A_curr, Z_curr
     
