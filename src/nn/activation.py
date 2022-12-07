@@ -13,7 +13,7 @@ def softmax(inputs):
     """
     Softmax Activation Function
     """
-    exp_scores = not_zero(np.exp(inputs))
+    exp_scores = not_zero(np.exp(np.clip(inputs, -709.78, 709.78)))
     tmp = not_zero(np.sum(exp_scores, axis=1, keepdims=True))
     probs = exp_scores / tmp
     return probs

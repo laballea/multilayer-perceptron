@@ -1,37 +1,52 @@
 import numpy as np
 from tqdm import tqdm
 import sys
+import time
 
 from utils.utils_ml import not_zero
 from nn.dense import DenseLayer
 
+def intercept_(x):
+    """
+    add one columns to x
+    """
+    try:
+        if (not isinstance(x, np.ndarray)):
+            print("intercept_ invalid type")
+            return None
+        return np.concatenate([np.ones(len(x)).reshape(-1, 1), x], axis=1)
+    except Exception as inst:
+        print(inst)
+        return None
+
+
 class AdamOptim():
     #https://towardsdatascience.com/how-to-implement-an-adam-optimizer-from-scratch-76e7b217f1cc
     #https://www.youtube.com/watch?v=JXQT_vxqwIs
-    def __init__(self, beta1: float=0.9, beta2: float=0.999, eps: float=1e-15):
+    def __init__(self, beta1: float=0.999, beta2: float=0.999, eps: float=1e-8):
         self.m_dw, self.v_dw = 0, 0
-        self.m_db, self.v_db = 0, 0
+        # self.m_db, self.v_db = 0, 0
         self.beta1 = beta1
         self.beta2 = beta2
         self.eps = eps
-        self.t = 0
+        self.t = 1
     
-    def _update_wb(self, w: np.ndarray, b:np.ndarray, dw: np.ndarray, db: np.ndarray, lr: float):
-        self.t += 1
+    def init(self, dw: np.ndarray):
+        self.m_dw, self.v_dw = np.zeros(dw.shape), np.zeros(dw.shape)
+
+
+    def _update_wb(self, w: np.ndarray, dw: np.ndarray, lr: float):
+        if self.t == 1:
+            self.init(dw)
         self.m_dw = self.beta1 * self.m_dw + (1 - self.beta1) * dw
-        self.m_db = self.beta1 * self.m_db + (1 - self.beta1) * db
 
         self.v_dw = self.beta2 * self.v_dw + (1 - self.beta2) * (dw ** 2)
-        self.v_db = self.beta2 * self.v_db + (1 - self.beta2) * (db ** 2)
 
         m_dw_corr = self.m_dw / (1 - self.beta1 ** self.t)
-        m_db_corr = self.m_db / (1 - self.beta1 ** self.t)
         v_dw_corr = self.v_dw / (1 - self.beta2 ** self.t)
-        v_db_corr = self.v_db / (1 - self.beta2 ** self.t)
-
-        w = w - lr * (m_dw_corr / (np.sqrt(v_dw_corr + self.eps)))
-        b = b - lr * (m_db_corr / (np.sqrt(v_db_corr + self.eps)))
-        return w, b
+        w = w - lr * (m_dw_corr / (np.sqrt(v_dw_corr) + self.eps))
+        self.t += 1
+        return w
 
 class Network:
     def __init__(self, name=None):
@@ -40,12 +55,13 @@ class Network:
         self.layerSize = []
         self.network = [] ## layers
         self.architecture = [] ## mapping input neurons --> output neurons
-        self.params = [] ## W, b
+        self.params = [] ## W, optimizer
         self.memory = [] ## Z, A
-        self.gradients = [] ## dW, db
+        self.gradients = [] ## dW
         self.eps = 1e-15
         self.loss = []  # store loss
         self.accuracy = []  # store accuracy
+        self.accuracy_tr = []  # store accuracy
         self.total_it = 0
         self.name = name
         self.opt = "basic"
@@ -71,7 +87,6 @@ class Network:
             # calculate forward for specific layer
             A_curr, Z_curr = self.network[i].forward(inputs=A_prev,
                                                      weights=self.params[i]['W'],
-                                                     bias=self.params[i]['b'],
                                                      act_name=self.architecture[i]['activation']
                                                     )
             # save data for backwardprop
@@ -96,24 +111,22 @@ class Network:
             Z_curr = self.memory[idx]['Z']
             W_curr = self.params[idx]['W']
             act_name = self.architecture[idx]['activation']
-            dA_prev, dW_curr, db_curr = layer.backward(dA_curr, W_curr, Z_curr, A_prev, act_name)
-            self.gradients.append({'dW':dW_curr, 'db':db_curr})
+            dA_prev, dW_curr = layer.backward(dA_curr, W_curr, Z_curr, A_prev, act_name)
+            self.gradients.append({'dW':dW_curr})
 
-    def basic_update_wb(self, w: np.ndarray, b:np.ndarray, dw: np.ndarray, db: np.ndarray, lr: float):
+    def basic_update_wb(self, w: np.ndarray, dw: np.ndarray, lr: float):
         w = w - lr * dw
-        b = b - lr * db
-        return w, b
+        return w
 
     def _update(self, lr=0.01):
         """
         Update the model parameters --> lr * gradient
         """
         for idx, layer in enumerate(self.network):
-            dw, db = list(reversed(self.gradients))[idx]['dW'].T, list(reversed(self.gradients))[idx]['db']
-            w, b = self.params[idx]['W'], self.params[idx]['b']
-            new_w, new_b = self.params[idx]['opt'](w, b, dw, db, lr)
+            dw = list(reversed(self.gradients))[idx]['dW'].T
+            w = self.params[idx]['W']
+            new_w = self.params[idx]['opt'](w, dw, lr)
             self.params[idx]['W'] = new_w
-            self.params[idx]['b'] = new_b
 
     def _get_accuracy(self, predicted, actual):
         """
@@ -139,8 +152,11 @@ class Network:
         """
         X_train, Y_train = train[0], train[1]
         X_test, Y_test = test[0], test[1]
-        for i in tqdm(range(epochs), disable=True):
+        X_train = intercept_(X_train).astype(np.float128)
+        X_test = intercept_(X_test).astype(np.float128)
+        for i in tqdm(range(epochs), disable=False):
             yhat_train = self._forwardprop(X_train)  # calculate prediction
+            self.accuracy_tr.append(self._get_accuracy(predicted=yhat_train, actual=Y_train))  # get accuracy
             self._backprop(predicted=yhat_train, actual=Y_train)
 
             yhat_test = self._forwardprop(X_test, test=True)  # calculate prediction for test
@@ -149,6 +165,7 @@ class Network:
 
             self._update(lr=lr)
             self.total_it += 1
+            time.sleep(0.03)
 
     def _init_architect(self, data):
         """
@@ -173,23 +190,24 @@ class Network:
         self.loss = []
         self.params = []
         self.accuracy = []
+        self.accuracy_tr = []
         self.total_it = 0
         for i in range(len(self.architecture)):
+            bias = 0 if i >= len(self.architecture) - 1 else 1
             self.params.append({
-                'W':np.random.uniform(low=-1, high=1,
-                size=(self.architecture[i]['output_dim'],
-                        self.architecture[i]['input_dim'])),
-                'b':np.zeros((1, self.architecture[i]['output_dim'])),
+                'W':np.random.uniform(low=-0.5, high=0.5,
+                size=(self.architecture[i]['output_dim'] + bias,
+                        self.architecture[i]['input_dim'] + 1)),
                 'opt':self.compile_opt()
             })
     
     def reset_weights(self):
         for i in range(len(self.architecture)):
+            bias = 0 if i >= len(self.architecture) - 1 else 1
             self.params[i] = {
-                'W':np.random.uniform(low=-1, high=1, 
-                size=(self.architecture[i]['output_dim'],
-                        self.architecture[i]['input_dim'])),
-                'b':np.zeros((1, self.architecture[i]['output_dim'])),
+                'W':np.random.uniform(low=-0.5, high=0.5, 
+                size=(self.architecture[i]['output_dim'] + bias,
+                        self.architecture[i]['input_dim'] + 1)),
                 'opt':self.compile_opt()
             }
 
@@ -204,18 +222,17 @@ class Network:
         np.random.seed(99)
         if (len(params) == 0):
             for i in range(len(self.architecture)):
+                bias = 0 if i >= len(self.architecture) - 1 else 1
                 self.params.append({
-                    'W':np.random.uniform(low=-1, high=1, 
-                    size=(self.architecture[i]['output_dim'],
-                            self.architecture[i]['input_dim'])),
-                    'b':np.zeros((1, self.architecture[i]['output_dim'])),
+                    'W':np.random.uniform(low=-0.5, high=0.5, 
+                    size=(self.architecture[i]['output_dim'] + bias,
+                            self.architecture[i]['input_dim'] + 1)),
                     'opt':self.compile_opt()
                 })
         else:
             for param in params:
                 self.params.append({
                     'W':param["W"],
-                    'b':param["b"],
                     'opt':self.compile_opt()
                 })
             # self.params = params

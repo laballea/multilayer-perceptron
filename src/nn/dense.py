@@ -20,11 +20,11 @@ class DenseLayer:
         self.neurons = neurons
         self.act_name = act_name
     
-    def forward(self, inputs, weights, bias, act_name):
+    def forward(self, inputs, weights, act_name):
         """
         Single Layer Forward Propagation
         """
-        Z_curr = np.dot(inputs, weights.T) + bias
+        Z_curr = np.dot(inputs, weights.T)
         A_curr = act_funct[act_name](inputs=Z_curr)
         return A_curr, Z_curr
     
@@ -34,6 +34,5 @@ class DenseLayer:
         """
         dZ = der_funct[act_name](dA_curr, Z_curr)
         dW = np.dot(A_prev.T, dZ)
-        db = np.sum(dZ, axis=0, keepdims=True)
         dA = np.dot(dZ, W_curr)
-        return dA, dW, db
+        return dA, dW

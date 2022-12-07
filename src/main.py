@@ -13,6 +13,7 @@ import yaml
 import seaborn as sns
 import math
 
+
 from utils.checker import arg_checker
 from nn.visualize import Visualize
 from utils.utils_ml import cross_validation, data_spliter, normalize
@@ -81,7 +82,8 @@ def compile_model(yml_model, X, optimizer="basic"):
     model.add(DenseLayer(yml_model["structure"][-1], act_name=yml_model["act_output"]))
     params = []
     for el in yml_model["params"]:
-        params.append({"W":np.array(el["W"]), "b":np.array(el["b"])})
+        # params.append({"W":np.array(el["W"]), "b":np.array(el["b"])})
+        params.append({"W":np.array(el["W"])})
     model.compile(X, params, optimizer=optimizer)
     return model
 
@@ -103,13 +105,14 @@ def train(yml_file, models, X, Y, max_iter, lr=0.1):
     for model in tqdm(models, leave=False):
         yml_model = yml_file["models"][model.name]
         model.train(train=[X_train, Y_train.astype(int)], test=[X_test, Y_test.astype(int)], epochs=max_iter, lr=lr)
-        time.sleep(1.5)
+        
+        time.sleep(0.5)
         yml_model["accuracy_hist"] += model.accuracy
         yml_model["loss_hist"] += model.loss
         yml_model["total_it"] += int(model.total_it)
         params = []
         for el in model.params:
-            params.append({"W":el["W"].tolist(), "b":el["b"].tolist()})
+            params.append({"W":el["W"].astype(float).tolist()})
         yml_model["params"] = params
 
 
@@ -133,7 +136,7 @@ def display(yml_file, X):
     Visualize().evol_2(range(model.total_it), model.loss, label=["iteration", "loss"], title=f"Model loss of {model.name}")
     Visualize().evol_2(range(model.total_it), model.accuracy, label=["iteration", "accuracy"], title=f"Model accuracy {model.name}")
     Visualize().draw_nn(model)
-    fig, axs = plt.subplots(nrows=2, ncols=2, figsize=(16, 8))
+    fig, axs = plt.subplots(nrows=1, ncols=2, figsize=(16, 8))
     for idx, eval in enumerate(["accuracy_hist", "loss_hist"]):
         quantil = np.quantile([model[eval].pop() for model in yml_file["models"].values()], (0.25, 0.5, 0.75))
         cmap = matplotlib.cm.get_cmap('Spectral')
@@ -146,43 +149,42 @@ def display(yml_file, X):
                 alpha = 0.3
             elif (yml_model[eval].pop() < quantil[2]):
                 alpha = 0.5
-            axs[math.floor(idx_model / 50)][idx].plot(range(len(yml_model[eval])), yml_model[eval], c=cmap(idx_model%50/50), label=yml_model["name"], alpha=alpha)
-        axs[0][idx].legend()
-        axs[0][idx].set_ylabel(eval)
-        axs[0][idx].set_xlabel("total iteration")
-        axs[1][idx].legend()
-        axs[1][idx].set_ylabel(eval)
-        axs[1][idx].set_xlabel("total iteration")
+            axs[idx].plot(range(len(yml_model[eval])), yml_model[eval], c=cmap(idx_model%25/25), label=yml_model["name"], alpha=alpha)
+        axs[idx].legend()
+        axs[idx].set_ylabel(eval)
+        axs[idx].set_xlabel("total iteration")
     Visualize().plot()
 
 
-def test_opt(yml_file, X, Y, max_iter):
+def test_opt(yml_file, X, Y, max_iter, lr):
     X_train, Y_train, X_test, Y_test = data_spliter(X, Y, 0.75)
     X_train = normalize(X_train)
     X_test = normalize(X_test)
-    print(max_iter)
     data = {
         "it":range(max_iter)
     }
     for opt in ["basic", "adam"]:
         model = compile_model(yml_file["models"][yml_file["data"]["best_model"]], X, optimizer=opt)
-        model.train(train=[X_train, Y_train.astype(int)], test=[X_test, Y_test.astype(int)], epochs=max_iter, lr=0.006)
+        model.train(train=[X_train, Y_train.astype(int)], test=[X_test, Y_test.astype(int)], epochs=max_iter, lr=lr)
         data[f"accuracy_{opt}"] = model.accuracy
+        data[f"accuracy_tr_{opt}"] = model.accuracy_tr
     
     plt.figure()
     sns.lineplot(x='it', y='value', hue='variable', data=pd.melt(pd.DataFrame(data), ['it']))
+    plt.ylabel("accuracy")
     plt.show()
 
 
 def main(argv):
     try:
-        opts, args = getopt.getopt(argv, "l:r:", ["maxL=", "maxN=", "minL=", "minN=", "reset", "train", "display", "opt"])
+        opts, args = getopt.getopt(argv, "l:r:o:", ["maxL=", "maxN=", "minL=", "minN=", "reset", "train", "display", "opt"])
     except getopt.GetoptError as inst:
         print(inst)
         sys.exit(2)
     X, Y, Y_n = get_data("../ressources/data.csv")
     output = 2
-    learning_rate, max_iter, max_layers, max_neurons, min_layers, min_neurons = 0.01, 100, 2, int(len(X.T)/2), 2, 5
+    learning_rate, max_iter, max_layers, max_neurons, min_layers, min_neurons = 0.01, 100, 2, int(len(X.T)/2), 2, 10
+    optimizer = "basic"
     with open("models.yml", "r") as stream:
         try:
             yml_file = yaml.safe_load(stream)
@@ -201,12 +203,14 @@ def main(argv):
             min_layers = int(arg)
         if (opt in ['--minN']):
             min_neurons = int(arg)
+        if opt in ['-o']:
+            optimizer = str(arg)
     arg_checker(learning_rate, max_iter, max_layers, max_neurons, min_layers, min_neurons)
     for opt, arg in opts:
         if opt == '--reset':
             reset(min_neurons, max_neurons, min_layers, max_layers, output, "softmax")
         if opt == '--train':
-            models = compile_models(yml_file, X, opt="adam")
+            models = compile_models(yml_file, X, opt=optimizer)
             train(yml_file, models, X, Y_n, max_iter, learning_rate)
             find_best(yml_file, max_iter)
             with open("models.yml", 'w') as outfile:
@@ -214,7 +218,7 @@ def main(argv):
         if opt == '--display':
             display(yml_file, X)
         if opt == '--opt':
-            test_opt(yml_file, X, Y_n, max_iter)
+            test_opt(yml_file, X, Y_n, max_iter, learning_rate)
 
 if __name__ == "__main__":
     main(sys.argv[1:])
