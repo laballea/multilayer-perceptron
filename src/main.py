@@ -19,6 +19,7 @@ from nn.visualize import Visualize
 from utils.utils_ml import cross_validation, data_spliter, normalize
 from nn.network import Network
 from nn.dense import DenseLayer
+from nn.regularizer import *
 
 
 def get_data(path):
@@ -40,6 +41,15 @@ def get_combs(minN, maxN, minL, maxL):
         combs += list(itertools.product(list(itertools.product(pow)), repeat=num_layer))
     return combs
 
+def clean(yml_file):
+    yml_file["data"]["best_model"] = None
+    for name in yml_file["models"]:
+        yml_file["models"][name]["accuracy_hist"] = []
+        yml_file["models"][name]["loss_hist"] = []
+        yml_file["models"][name]["params"] = []
+        yml_file["models"][name]["total_it"] = 0
+    with open("models.yml", 'w') as outfile:
+        yaml.dump(yml_file, outfile, default_flow_style=None)
 
 def reset(minN, maxN, minL, maxL, output, act_output):
     """
@@ -82,8 +92,7 @@ def compile_model(yml_model, X, optimizer="basic"):
     model.add(DenseLayer(yml_model["structure"][-1], act_name=yml_model["act_output"]))
     params = []
     for el in yml_model["params"]:
-        # params.append({"W":np.array(el["W"]), "b":np.array(el["b"])})
-        params.append({"W":np.array(el["W"])})
+        params.append({"W":np.array(el["W"], dtype=np.float128)})
     model.compile(X, params, optimizer=optimizer)
     return model
 
@@ -102,7 +111,7 @@ def train(yml_file, models, X, Y, max_iter, lr=0.1):
     X_train, Y_train, X_test, Y_test = data_spliter(X, Y, 0.75)
     X_train = normalize(X_train)
     X_test = normalize(X_test)
-    for model in tqdm(models, leave=False):
+    for model in tqdm(models, leave=True):
         yml_model = yml_file["models"][model.name]
         model.train(train=[X_train, Y_train.astype(int)], test=[X_test, Y_test.astype(int)], epochs=max_iter, lr=lr)
         
@@ -163,21 +172,26 @@ def test_opt(yml_file, X, Y, max_iter, lr):
     data = {
         "it":range(max_iter)
     }
-    for opt in ["basic", "adam"]:
-        model = compile_model(yml_file["models"][yml_file["data"]["best_model"]], X, optimizer=opt)
-        model.train(train=[X_train, Y_train.astype(int)], test=[X_test, Y_test.astype(int)], epochs=max_iter, lr=lr)
-        data[f"accuracy_{opt}"] = model.accuracy
-        data[f"accuracy_tr_{opt}"] = model.accuracy_tr
+    for model_name in tqdm(yml_file["models"], leave=True):
+        for opt in ["basic", "adam"]:
+            model = compile_model(yml_file["models"][model_name], X, optimizer=opt)
+            model.train(train=[X_train, Y_train.astype(int)], test=[X_test, Y_test.astype(int)], epochs=max_iter, lr=lr)
+            data[f"accuracy_{opt}"] = model.accuracy
+            data[f"accuracy_tr_{opt}"] = model.accuracy_tr
+            data[f"loss_{opt}"] = model.loss
+            data[f"loss_tr_{opt}"] = model.loss_tr
     
-    plt.figure()
-    sns.lineplot(x='it', y='value', hue='variable', data=pd.melt(pd.DataFrame(data), ['it']))
-    plt.ylabel("accuracy")
+        plt.figure()
+        last = data[f"accuracy_adam"][-1]
+        plt.title(f"model_name accuracy_adam {last}")
+        sns.lineplot(x='it', y='value', hue='variable', data=pd.melt(pd.DataFrame(data), ['it']))
+        plt.ylabel("accuracy")
     plt.show()
 
 
 def main(argv):
     try:
-        opts, args = getopt.getopt(argv, "l:r:o:", ["maxL=", "maxN=", "minL=", "minN=", "reset", "train", "display", "opt"])
+        opts, args = getopt.getopt(argv, "l:r:o:", ["maxL=", "maxN=", "minL=", "minN=", "reset", "clean", "train", "display", "opt"])
     except getopt.GetoptError as inst:
         print(inst)
         sys.exit(2)
@@ -205,8 +219,11 @@ def main(argv):
             min_neurons = int(arg)
         if opt in ['-o']:
             optimizer = str(arg)
+    np.random.seed(99)
     arg_checker(learning_rate, max_iter, max_layers, max_neurons, min_layers, min_neurons)
     for opt, arg in opts:
+        if opt == '--clean':
+            clean(yml_file)
         if opt == '--reset':
             reset(min_neurons, max_neurons, min_layers, max_layers, output, "softmax")
         if opt == '--train':

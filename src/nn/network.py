@@ -23,7 +23,7 @@ def intercept_(x):
 class AdamOptim():
     #https://towardsdatascience.com/how-to-implement-an-adam-optimizer-from-scratch-76e7b217f1cc
     #https://www.youtube.com/watch?v=JXQT_vxqwIs
-    def __init__(self, beta1: float=0.999, beta2: float=0.999, eps: float=1e-8):
+    def __init__(self, beta1: float=0.9, beta2: float=0.999, eps: float=1e-8):
         self.m_dw, self.v_dw = 0, 0
         # self.m_db, self.v_db = 0, 0
         self.beta1 = beta1
@@ -34,7 +34,6 @@ class AdamOptim():
     def init(self, dw: np.ndarray):
         self.m_dw, self.v_dw = np.zeros(dw.shape), np.zeros(dw.shape)
 
-
     def _update_wb(self, w: np.ndarray, dw: np.ndarray, lr: float):
         if self.t == 1:
             self.init(dw)
@@ -42,11 +41,12 @@ class AdamOptim():
 
         self.v_dw = self.beta2 * self.v_dw + (1 - self.beta2) * (dw ** 2)
 
-        m_dw_corr = self.m_dw / (1 - self.beta1 ** self.t)
-        v_dw_corr = self.v_dw / (1 - self.beta2 ** self.t)
+        m_dw_corr = self.m_dw / (1 - self.beta1 ** (self.t))
+        v_dw_corr = self.v_dw / (1 - self.beta2 ** (self.t))
         w = w - lr * (m_dw_corr / (np.sqrt(v_dw_corr) + self.eps))
-        self.t += 1
+        self.t += 2
         return w
+
 
 class Network:
     def __init__(self, name=None):
@@ -60,6 +60,7 @@ class Network:
         self.gradients = [] ## dW
         self.eps = 1e-15
         self.loss = []  # store loss
+        self.loss_tr = []  # store loss
         self.accuracy = []  # store accuracy
         self.accuracy_tr = []  # store accuracy
         self.total_it = 0
@@ -152,11 +153,12 @@ class Network:
         """
         X_train, Y_train = train[0], train[1]
         X_test, Y_test = test[0], test[1]
-        X_train = intercept_(X_train).astype(np.float128)
-        X_test = intercept_(X_test).astype(np.float128)
-        for i in tqdm(range(epochs), disable=False):
+        X_train = intercept_(X_train).astype(np.float64)
+        X_test = intercept_(X_test).astype(np.float64)
+        for i in tqdm(range(epochs), leave=False):
             yhat_train = self._forwardprop(X_train)  # calculate prediction
             self.accuracy_tr.append(self._get_accuracy(predicted=yhat_train, actual=Y_train))  # get accuracy
+            self.loss_tr.append(self._calculate_loss(predicted=yhat_train, actual=Y_train))  # get loss
             self._backprop(predicted=yhat_train, actual=Y_train)
 
             yhat_test = self._forwardprop(X_test, test=True)  # calculate prediction for test
@@ -197,7 +199,7 @@ class Network:
             self.params.append({
                 'W':np.random.uniform(low=-0.5, high=0.5,
                 size=(self.architecture[i]['output_dim'] + bias,
-                        self.architecture[i]['input_dim'] + 1)),
+                        self.architecture[i]['input_dim'] + 1)).astype(np.float128),
                 'opt':self.compile_opt()
             })
     
@@ -207,7 +209,7 @@ class Network:
             self.params[i] = {
                 'W':np.random.uniform(low=-0.5, high=0.5, 
                 size=(self.architecture[i]['output_dim'] + bias,
-                        self.architecture[i]['input_dim'] + 1)),
+                        self.architecture[i]['input_dim'] + 1)).astype(np.float128),
                 'opt':self.compile_opt()
             }
 
@@ -226,7 +228,7 @@ class Network:
                 self.params.append({
                     'W':np.random.uniform(low=-0.5, high=0.5, 
                     size=(self.architecture[i]['output_dim'] + bias,
-                            self.architecture[i]['input_dim'] + 1)),
+                            self.architecture[i]['input_dim'] + 1)).astype(np.float128),
                     'opt':self.compile_opt()
                 })
         else:
@@ -235,6 +237,7 @@ class Network:
                     'W':param["W"],
                     'opt':self.compile_opt()
                 })
+            
             # self.params = params
         return self
 
