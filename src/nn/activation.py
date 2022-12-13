@@ -18,9 +18,23 @@ def softmax(inputs):
     probs = exp_scores / tmp
     return probs
 
+def sigmoid(inputs):
+    """
+    Sigmoid Activation Function
+    """
+    return 1 / (1 + np.exp(-inputs))
+
+def tanh(inputs):
+    """
+    Sigmoid Activation Function
+    """
+    return (2 / (1 + np.exp(-2 * inputs))) - 1
+
 act_funct = {
     "relu":relu,
-    "softmax":softmax
+    "softmax":softmax,
+    "sigmoid":sigmoid,
+    "tanh":tanh,
 }
 
 def relu_derivative(dA, Z):
@@ -33,11 +47,29 @@ def relu_derivative(dA, Z):
 
 def softmax_derivative(dA, Z):
     """
-    ReLU Derivative Function
+    Softmax Derivative Function
     """
     return dA
 
+def sigmoid_derivative(dA, Z):
+    """
+    Sigmoid Derivative Function
+    """
+    s = sigmoid(Z)
+    dZ = dA * (1 - s) * s
+    return dZ
+
+def tanh_derivative(dA, Z):
+    """
+    tanh Derivative Function
+    """
+    s = tanh(Z)
+    dZ = dA * (1 - s**2)
+    return dZ
+
 der_funct = {
     "relu":relu_derivative,
-    "softmax":softmax_derivative
+    "softmax":softmax_derivative,
+    "sigmoid":sigmoid_derivative,
+    "tanh":tanh_derivative,
 }

@@ -11,15 +11,15 @@ from tqdm import tqdm
 import time
 import yaml
 import seaborn as sns
-import math
 
 
 from utils.checker import arg_checker
 from nn.visualize import Visualize
-from utils.utils_ml import cross_validation, data_spliter, normalize
+from utils.utils_ml import data_spliter, normalize
 from nn.network import Network
 from nn.dense import DenseLayer
 from nn.regularizer import *
+from utils.metrics import f1_score_, recall_score_, precision_score_
 
 
 def get_data(path):
@@ -88,11 +88,11 @@ def compile_model(yml_model, X, optimizer="basic"):
     """
     model = Network(name=yml_model["name"])
     for neuron_nb in yml_model["structure"][:-1]:
-        model.add(DenseLayer(neuron_nb, act_name="relu"))
+        model.add(DenseLayer(neuron_nb, act_name="tanh"))
     model.add(DenseLayer(yml_model["structure"][-1], act_name=yml_model["act_output"]))
     params = []
     for el in yml_model["params"]:
-        params.append({"W":np.array(el["W"], dtype=np.float128)})
+        params.append({"W":np.array(el["W"]), "b":np.array(el["b"])})
     model.compile(X, params, optimizer=optimizer)
     return model
 
@@ -107,13 +107,16 @@ def compile_models(yml_file, X, opt="basic"):
     return models
 
 
-def train(yml_file, models, X, Y, max_iter, lr=0.1):
+def train(yml_file, models, X, Y, max_iter, lr=0.01):
     X_train, Y_train, X_test, Y_test = data_spliter(X, Y, 0.75)
     X_train = normalize(X_train)
     X_test = normalize(X_test)
+
+    X = normalize(X)
+    Y = Y.reshape(len(Y),)
     for model in tqdm(models, leave=True):
         yml_model = yml_file["models"][model.name]
-        model.train(train=[X_train, Y_train.astype(int)], test=[X_test, Y_test.astype(int)], epochs=max_iter, lr=lr)
+        model.train(train=[X, Y.astype(int)], test=[X, Y.astype(int)], epochs=max_iter, lr=lr)
         
         time.sleep(0.5)
         yml_model["accuracy_hist"] += model.accuracy
@@ -121,18 +124,31 @@ def train(yml_file, models, X, Y, max_iter, lr=0.1):
         yml_model["total_it"] += int(model.total_it)
         params = []
         for el in model.params:
-            params.append({"W":el["W"].astype(float).tolist()})
+            params.append({"W":el["W"].astype(float).tolist(), "b":el["b"].astype(float).tolist()})
         yml_model["params"] = params
+
+
+def predict(yml_file, X, Y):
+    model_yml = yml_file["models"][yml_file["data"]["best_model"]]
+    # model_yml = yml_file["models"]["15_8_2"]
+    model = compile_model(model_yml, X)
+    X_ = normalize(X)
+    Y = Y.reshape(len(Y),)
+    Y_hat = model.predict(X_)
+    print(f"accuracy = {model._get_accuracy(Y_hat, Y)} | loss = {model._calculate_loss(Y_hat, Y)}")
+    print(f"f1_score = {f1_score_((np.argmax(Y_hat, axis=1)).reshape(-1, 1), Y.reshape(-1, 1))}")
+    print(f"recall_score = {recall_score_((np.argmax(Y_hat, axis=1)).reshape(-1, 1), Y.reshape(-1, 1))}")
+    print(f"precision_score = {precision_score_((np.argmax(Y_hat, axis=1)).reshape(-1, 1), Y.reshape(-1, 1))}")
 
 
 def find_best(yml_file, max_iter):
     accuracy_list = []
     for model in yml_file["models"].values():
         size = len(model["accuracy_hist"])
-        accuracy_list.append(sum(np.array(model["accuracy_hist"][max_iter:size:max_iter])))
-        # np.array([model["accuracy_hist"][:len(model["accuracy_hist"]):len(model["accuracy_hist"])/10] if len(model["accuracy_hist"]) > 0 else 0 )
+        accuracy_list.append(np.array(model["accuracy_hist"][-1]))
     name_list = np.array([model["name"] for model in yml_file["models"].values()])
     best = name_list[np.argmax(accuracy_list, axis=0)]
+    print(best)
     yml_file["data"]["best_model"] = str(best)
 
 
@@ -151,14 +167,7 @@ def display(yml_file, X):
         cmap = matplotlib.cm.get_cmap('Spectral')
         # plt.figure()
         for idx_model, yml_model in enumerate(yml_file["models"].values()):
-            alpha = 1
-            if (yml_model[eval].pop() < quantil[0]):
-                alpha = 0.1
-            elif (yml_model[eval].pop() < quantil[1]):
-                alpha = 0.3
-            elif (yml_model[eval].pop() < quantil[2]):
-                alpha = 0.5
-            axs[idx].plot(range(len(yml_model[eval])), yml_model[eval], c=cmap(idx_model%25/25), label=yml_model["name"], alpha=alpha)
+            axs[idx].plot(range(len(yml_model[eval])), yml_model[eval], c=cmap(idx_model%5/5), label=yml_model["name"])
         axs[idx].legend()
         axs[idx].set_ylabel(eval)
         axs[idx].set_xlabel("total iteration")
@@ -191,14 +200,15 @@ def test_opt(yml_file, X, Y, max_iter, lr):
 
 def main(argv):
     try:
-        opts, args = getopt.getopt(argv, "l:r:o:", ["maxL=", "maxN=", "minL=", "minN=", "reset", "clean", "train", "display", "opt"])
+        opts, args = getopt.getopt(argv, "f:l:r:o:", ["file=", "maxL=", "maxN=", "minL=", "minN=", "predict", "reset", "clean", "train", "display", "opt"])
     except getopt.GetoptError as inst:
         print(inst)
         sys.exit(2)
-    X, Y, Y_n = get_data("../ressources/data.csv")
     output = 2
-    learning_rate, max_iter, max_layers, max_neurons, min_layers, min_neurons = 0.01, 100, 2, int(len(X.T)/2), 2, 10
+    learning_rate, max_iter, max_layers, max_neurons, min_layers, min_neurons = 0.01, 100, 1, 1, 1, 1
     optimizer = "basic"
+    file = "../ressources/data.csv"
+
     with open("models.yml", "r") as stream:
         try:
             yml_file = yaml.safe_load(stream)
@@ -219,23 +229,28 @@ def main(argv):
             min_neurons = int(arg)
         if opt in ['-o']:
             optimizer = str(arg)
-    np.random.seed(99)
+
+    X, Y, Y_n = get_data(file)
+    np.random.seed(1)
     arg_checker(learning_rate, max_iter, max_layers, max_neurons, min_layers, min_neurons)
+
     for opt, arg in opts:
-        if opt == '--clean':
+        if opt in ['--clean']:
             clean(yml_file)
-        if opt == '--reset':
+        if opt in ['--reset']:
             reset(min_neurons, max_neurons, min_layers, max_layers, output, "softmax")
-        if opt == '--train':
+        if opt in ['--train']:
             models = compile_models(yml_file, X, opt=optimizer)
             train(yml_file, models, X, Y_n, max_iter, learning_rate)
             find_best(yml_file, max_iter)
             with open("models.yml", 'w') as outfile:
                 yaml.dump(yml_file, outfile, default_flow_style=None)
-        if opt == '--display':
+        if opt in ['--display']:
             display(yml_file, X)
-        if opt == '--opt':
+        if opt in ['--opt']:
             test_opt(yml_file, X, Y_n, max_iter, learning_rate)
+        if opt in ['--predict']:
+            predict(yml_file, X, Y_n)
 
 if __name__ == "__main__":
     main(sys.argv[1:])

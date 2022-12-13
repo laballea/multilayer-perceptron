@@ -1,24 +1,11 @@
 import numpy as np
 
 
-def perf_measure(y, y_hat):
-    TP = 0
-    FP = 0
-    TN = 0
-    FN = 0
-    y = np.reshape(y, (len(y)))
-    y_hat = np.reshape(y_hat, (len(y_hat)))
-    types = list(dict.fromkeys(y))
-    for i in range(len(y_hat)):
-        if y[i] == y_hat[i] == types[0]:
-            TP += 1
-        if y_hat[i] == types[0] and y[i] != y_hat[i]:
-            FP += 1
-        if y[i] == y_hat[i] == types[1]:
-            TN += 1
-        if y_hat[i] == types[1] and y[i] != y_hat[i]:
-            FN += 1
-
+def perf_measure(y: np.ndarray, y_hat: np.ndarray, pos_label=1):
+    TP = sum((y == pos_label) & (y_hat == pos_label))
+    FP = sum((y != pos_label) & (y_hat == pos_label))
+    TN = sum((y != pos_label) & (y_hat != pos_label))
+    FN = sum((y == pos_label) & (y_hat != pos_label))
     return (TP, FP, TN, FN)
 
 
@@ -38,8 +25,7 @@ def accuracy_score_(y, y_hat):
         tp, fp, tn, fn = perf_measure(y, y_hat)
         return (tp + tn) / (tp + fp + tn + fn)
     except Exception as inst:
-        print(inst)
-        return None
+        raise(inst)
 
 
 def precision_score_(y, y_hat, pos_label=1):
@@ -56,11 +42,12 @@ def precision_score_(y, y_hat, pos_label=1):
     This function should not raise any Exception.
     """
     try:
-        tp, fp, tn, fn = perf_measure(y, y_hat)
+        tp, fp, tn, fn = perf_measure(y, y_hat, pos_label)
+        if tp + fp == 0:
+            return 0
         return (tp) / (tp + fp)
     except Exception as inst:
-        print(inst)
-        return None
+        raise(inst)
 
 
 def recall_score_(y, y_hat, pos_label=1):
@@ -77,11 +64,12 @@ def recall_score_(y, y_hat, pos_label=1):
     This function should not raise any Exception.
     """
     try:
-        tp, fp, tn, fn = perf_measure(y, y_hat)
+        tp, fp, tn, fn = perf_measure(y, y_hat, pos_label)
+        if tp + fn == 0:
+            return 0
         return (tp) / (tp + fn)
     except Exception as inst:
-        print(inst)
-        return None
+        raise(inst)
 
 
 def f1_score_(y, y_hat, pos_label=1):
@@ -97,10 +85,11 @@ def f1_score_(y, y_hat, pos_label=1):
     Raises:
     This function should not raise any Exception.
     """
-    precision = precision_score_(y, y_hat)
+    precision = precision_score_(y, y_hat, pos_label)
     recall = recall_score_(y, y_hat)
     try:
-        return (2 * precision * recall) / (precision + recall)
+        if precision + recall == 0:
+            return 0
+        return float(2 * precision * recall) / (precision + recall)
     except Exception as inst:
-        print(inst)
-        return None
+        raise(inst)
