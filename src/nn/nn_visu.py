@@ -36,7 +36,7 @@ class Layer():
     def __intialise_neurons(self, number_of_neurons):
         neurons = []
         x = self.__calculate_left_margin_so_layer_is_centered(number_of_neurons)
-        for iteration in zip(range(number_of_neurons)):
+        for iteration in range(number_of_neurons):
             w = None
             if (self.params is not None):
                 w = self.params['W'][iteration]
@@ -112,7 +112,7 @@ class NeuralNetwork():
         pyplot.title('Neural Network architecture', fontsize=15)
 
 class DrawNN():
-    def __init__(self, neural_network, layer_params):
+    def __init__(self, neural_network: list, layer_params: list):
         last = neural_network[-1]
         output = {'input_dim': last['output_dim'], 'output_dim': 0, 'activation': last['activation']}
         last['activation'] = neural_network[-2]['activation']
