@@ -11,13 +11,13 @@ from nn.optimizers import BasicOptim
 class Network:
     def __init__(self, name=None):
         self.layerSize = []
-        self.network = [] ## layers
+        self.network: list[DenseLayer] = [] ## layers
         self.architecture = [] ## mapping input neurons --> output neurons
 
-        self.params = [] ## W, optimizer
+        # self.params = [] ## W, optimizer
 
-        self.memory = [] ## Z, A
-        self.gradients = [] ## dW
+        # self.memory = [] ## Z, A
+        # self.gradients = [] ## dW
 
 
         self.loss = []  # store loss
@@ -30,33 +30,17 @@ class Network:
         self.opt = BasicOptim()
         self.eps = 1e-15
 
-        
-    def add(self, layer: DenseLayer):
-        """
-        Add layers to the network
-        """
-        self.network.append(layer)
-        self.layerSize.append(layer.neurons)
-
-
-    def _forwardprop(self, data, test=False):
+    def _forwardprop(self, data, save=True):
         """
         Performs one full forward pass through network
         """
         A_curr = data  # current activation result
 
         # iterate over layers Weight and bias
-        for i in range(len(self.params)):
-            A_prev = A_curr  # save activation result
-            # calculate forward for specific layer
-            A_curr, Z_curr = self.network[i].forward(inputs=A_prev,
-                                                     weights=self.params[i]['W'],
-                                                     bias=self.params[i]['b'],
-                                                     act_name=self.architecture[i]['activation']
-                                                    )
-            # save data for backwardprop
-            if (not test):
-                self.memory.append({'inputs':A_prev, 'Z':Z_curr})
+        for layer in self.network:
+            # calculate forward propagation for specific layer
+            # save the ouput in A_curr and transfer it to the next layer
+            A_curr = layer.forward(A_curr, save)
         return A_curr
 
     def _backprop(self, predicted, actual):
@@ -65,36 +49,23 @@ class Network:
         """
         num_samples = len(actual)
 
+        # calculate loss derivative of our algorithm
         dscores = predicted
         dscores[range(num_samples), actual] -= 1
         dscores /= num_samples
 
-        dA_prev = dscores
-        for idx, layer in reversed(list(enumerate(self.network))):
-            dA_curr = dA_prev
-
-            A_prev = self.memory[idx]['inputs']
-            Z_curr = self.memory[idx]['Z']
-            W_curr = self.params[idx]['W']
-
-            act_name = self.architecture[idx]['activation']
-
-            dA_prev, dW_curr, db_curr = layer.backward(dA_curr, W_curr, Z_curr, A_prev, act_name)
-
-            self.gradients.append({'dW':dW_curr, 'db':db_curr})
+        dA_curr = dscores
+        for layer in reversed(self.network):
+            # calculate backward propagation for specific layer
+            dA_curr = layer.backward(dA_curr)
 
     def _update(self, lr=0.01):
         """
         Update the model parameters --> lr * gradient
         """
-        for idx, layer in enumerate(self.network):
-            dw = list(reversed(self.gradients))[idx]['dW'].T
-            db = list(reversed(self.gradients))[idx]['db']
-            w = self.params[idx]['W']
-            b = self.params[idx]['b']
-            new_w, new_b = self.params[idx]['opt'](self.total_it, w, dw, b, db, lr)
-            self.params[idx]['W'] = new_w.astype(np.float32)
-            self.params[idx]['b'] = new_b.astype(np.float32)
+        for layer in self.network:
+            # update layer Weights and bias
+            layer.update(self.total_it, lr)
 
     def _get_accuracy(self, predicted, actual):
         """
@@ -115,7 +86,7 @@ class Network:
         return float(data_loss)
 
     def predict(self, X):
-        y_hat = self._forwardprop(X, test=True)
+        y_hat = self._forwardprop(X, save=False)
         return y_hat
 
     def train(self, train, test, epochs, lr=0.01):
@@ -130,7 +101,7 @@ class Network:
             self.loss_tr.append(self._calculate_loss(predicted=yhat_train, actual=Y_train))  # get loss
             self._backprop(predicted=yhat_train, actual=Y_train)
 
-            yhat_test = self._forwardprop(X_test, test=True)  # calculate prediction for test
+            yhat_test = self._forwardprop(X_test, save=False)  # calculate prediction for test
             self.accuracy.append(self._get_accuracy(predicted=yhat_test, actual=Y_test))  # get accuracy
             self.loss.append(self._calculate_loss(predicted=yhat_test, actual=Y_test))  # get loss
 
@@ -147,35 +118,58 @@ class Network:
             self.architecture.append({'input_dim':shape, 
                                     'output_dim':self.network[idx].neurons,
                                     'activation':layer.act_name})
+            layer.compile(input_dim=shape, optimizer=self.opt)
             shape = self.network[idx].neurons
         return self
     
-    def reset_weights(self):
-        self.params = []
-        for i in range(len(self.architecture)):
-            self.params.append({
-                'W':np.random.uniform(low=-1, high=1, 
-                        size=(self.architecture[i]['output_dim'], 
-                              self.architecture[i]['input_dim'])),
-                'b':np.zeros((1, self.architecture[i]['output_dim'])),
-                'opt':deepcopy(self.opt)._update_wb
-            })
+    # def reset_weights(self):
+    #     self.params = []
+    #     for i in range(len(self.architecture)):
+    #         self.params.append({
+    #             'W':np.random.uniform(low=-1, high=1, 
+    #                     size=(self.architecture[i]['output_dim'], 
+    #                           self.architecture[i]['input_dim'])),
+    #             'b':np.zeros((1, self.architecture[i]['output_dim'])),
+    #             'opt':deepcopy(self.opt)._update_wb
+    #         })
 
     def compile(self, data, params, optimizer:BasicOptim=None):
         """
         Initialize model parameters depending of input shape and architecture
         """
         self.layerSize.insert(0, data.shape[1])
-        self._init_architect(data)
         if isinstance(optimizer, BasicOptim):
             self.opt = optimizer
-        if (len(params) == 0):
-            self.reset_weights()
-        else:
-            for param in params:
-                self.params.append({
-                    'W':param["W"],
-                    'b':param["b"],
-                    'opt':deepcopy(self.opt)._update_wb
-                })
+        self._init_architect(data)
+
+        if params is not None:
+            self.set_params(params)
+        # if (len(params) == 0):
+        #     self.reset_weights()
+        # else:
+        #     for param in params:
+        #         self.params.append({
+        #             'W':param["W"],
+        #             'b':param["b"],
+        #             'opt':deepcopy(self.opt)._update_wb
+        #         })
         return self
+
+    def get_params(self):
+        params = []
+        for layer in self.network:
+            params.append({"W":layer.W.astype(float).tolist(), "b": layer.b.astype(float).tolist()})
+        return params
+
+    def set_params(self, params):
+        for param, layer in zip(params, self.network):
+            layer.W = np.array(param["W"])
+            layer.b = np.array(param["b"])
+            # params.append({"W":layer.W, "b": layer.b})
+
+    def add(self, layer: DenseLayer):
+        """
+        Add layers to the network
+        """
+        self.network.append(layer)
+        self.layerSize.append(layer.neurons)

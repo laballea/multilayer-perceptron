@@ -1,6 +1,10 @@
-import matplotlib
 import matplotlib.pyplot as plt
+import numpy as np
+
+
 from nn.nn_visu import DrawNN
+from nn.network import Network
+
 
 class Visualize():
     def plot(self):
@@ -13,6 +17,6 @@ class Visualize():
         plt.xlabel(label[0])
         plt.ylabel(label[1])
     
-    def draw_nn(self, model):
-        network = DrawNN(model.architecture, model.params)
+    def draw_nn(self, model: Network):
+        network = DrawNN(model.architecture, model.get_params())
         network.draw()

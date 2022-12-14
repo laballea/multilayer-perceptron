@@ -93,10 +93,7 @@ def compile_model(yml_model, X, opt_name="basic"):
     for neuron_nb in yml_model["structure"][:-1]:
         model.add(DenseLayer(neuron_nb, act_name="tanh"))
     model.add(DenseLayer(yml_model["structure"][-1], act_name=yml_model["act_output"]))
-    params = []
-    for el in yml_model["params"]:
-        params.append({"W":np.array(el["W"]), "b":np.array(el["b"])})
-    model.compile(X, params, optimizer=optimizer_dict[opt_name]())
+    model.compile(X, yml_model["params"], optimizer=optimizer_dict[opt_name]())
     return model
 
 
@@ -105,31 +102,26 @@ def compile_models(yml_file, X, opt_name="basic"):
     create all model
     """
     models = []
-    for key, model in yml_file["models"].items():
+    for model in yml_file["models"].values():
         models.append(compile_model(model, X, opt_name))
     return models
 
 
-def train(yml_file, models, X, Y, max_iter, lr=0.01):
+def train(yml_file, models: list[Network], X, Y, max_iter, lr=0.01):
     X_train, Y_train, X_test, Y_test = data_spliter(X, Y, 0.75)
     X_train = normalize(X_train)
     X_test = normalize(X_test)
 
-    X = normalize(X)
-    Y = Y.reshape(len(Y),)
     for model in tqdm(models, leave=True):
         yml_model = yml_file["models"][model.name]
-        model.train(train=[X, Y.astype(int)], test=[X, Y.astype(int)], epochs=max_iter, lr=lr)
+        model.train(train=[X_train, Y_train.astype(int)], test=[X_test, Y_test.astype(int)], epochs=max_iter, lr=lr)
         
         time.sleep(0.5)
         yml_model["accuracy_hist"] += model.accuracy
         yml_model["loss_hist"] += model.loss
         yml_model["total_it"] += int(model.total_it)
-        params = []
-        for el in model.params:
-            params.append({"W":el["W"].astype(float).tolist(), "b":el["b"].astype(float).tolist()})
-        yml_model["params"] = params
-
+        yml_model["params"] = model.get_params()
+    find_best(yml_file)
 
 def predict(yml_file, X, Y):
     model_yml = yml_file["models"][yml_file["data"]["best_model"]]
@@ -144,14 +136,12 @@ def predict(yml_file, X, Y):
     print(f"precision_score = {precision_score_((np.argmax(Y_hat, axis=1)).reshape(-1, 1), Y.reshape(-1, 1))}")
 
 
-def find_best(yml_file, max_iter):
+def find_best(yml_file):
     accuracy_list = []
     for model in yml_file["models"].values():
-        size = len(model["accuracy_hist"])
         accuracy_list.append(np.array(model["accuracy_hist"][-1]))
     name_list = np.array([model["name"] for model in yml_file["models"].values()])
     best = name_list[np.argmax(accuracy_list, axis=0)]
-    print(best)
     yml_file["data"]["best_model"] = str(best)
 
 
@@ -166,9 +156,7 @@ def display(yml_file, X):
     Visualize().draw_nn(model)
     fig, axs = plt.subplots(nrows=1, ncols=2, figsize=(16, 8))
     for idx, eval in enumerate(["accuracy_hist", "loss_hist"]):
-        quantil = np.quantile([model[eval].pop() for model in yml_file["models"].values()], (0.25, 0.5, 0.75))
         cmap = matplotlib.cm.get_cmap('Spectral')
-        # plt.figure()
         for idx_model, yml_model in enumerate(yml_file["models"].values()):
             axs[idx].plot(range(len(yml_model[eval])), yml_model[eval], c=cmap(idx_model%5/5), label=yml_model["name"])
         axs[idx].legend()
@@ -245,7 +233,6 @@ def main(argv):
         if opt in ['--train']:
             models = compile_models(yml_file, X, opt_name=opt_name)
             train(yml_file, models, X, Y_n, max_iter, learning_rate)
-            find_best(yml_file, max_iter)
             with open("models.yml", 'w') as outfile:
                 yaml.dump(yml_file, outfile, default_flow_style=None)
         if opt in ['--display']:
