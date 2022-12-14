@@ -1,80 +1,34 @@
 import numpy as np
 from tqdm import tqdm
-import sys
 import time
+from copy import deepcopy
 
 from utils.utils_ml import not_zero
 from nn.dense import DenseLayer
-
-def intercept_(x):
-    """
-    add one columns to x
-    """
-    try:
-        if (not isinstance(x, np.ndarray)):
-            print("intercept_ invalid type")
-            return None
-        return np.concatenate([np.ones(len(x)).reshape(-1, 1), x], axis=1)
-    except Exception as inst:
-        print(inst)
-        return None
-
-
-class AdamOptim():
-    #https://towardsdatascience.com/how-to-implement-an-adam-optimizer-from-scratch-76e7b217f1cc
-    #https://www.youtube.com/watch?v=JXQT_vxqwIs
-    def __init__(self, beta1: float=0.9, beta2: float=0.999, eps: float=1e-8, t: int = 1):
-        self.m_dw, self.v_dw = 0, 0
-        self.m_db, self.v_db = 0, 0
-        self.beta1 = beta1
-        self.beta2 = beta2
-        self.eps = eps
-
-    def _update_wb(self, t: int, w: np.ndarray, dw: np.ndarray, b: np.ndarray, db: np.ndarray, lr: float):
-        t += 1
-        ## dw, db are from current minibatch
-        ## momentum beta 1
-        # *** weights *** #
-        self.m_dw = self.beta1*self.m_dw + (1-self.beta1)*dw
-        # *** biases *** #
-        self.m_db = self.beta1*self.m_db + (1-self.beta1)*db
-
-        ## rms beta 2
-        # *** weights *** #
-        self.v_dw = self.beta2*self.v_dw + (1-self.beta2)*(dw**2)
-        # *** biases *** #
-        self.v_db = self.beta2*self.v_db + (1-self.beta2)*(db**2)
-
-        ## bias correction
-        m_dw_corr = self.m_dw/(1-self.beta1**t)
-        m_db_corr = self.m_db/(1-self.beta1**t)
-        v_dw_corr = self.v_dw/(1-self.beta2**t)
-        v_db_corr = self.v_db/(1-self.beta2**t)
-
-        ## update weights and biases
-        w = w - lr * (m_dw_corr/(np.sqrt(v_dw_corr)+self.eps))
-        b = b - lr * (m_db_corr/(np.sqrt(v_db_corr)+self.eps))
-        return w, b
+from nn.optimizers import BasicOptim
 
 
 class Network:
     def __init__(self, name=None):
-        self.supported_opt = ["basic", "adam"]
-
         self.layerSize = []
         self.network = [] ## layers
         self.architecture = [] ## mapping input neurons --> output neurons
+
         self.params = [] ## W, optimizer
+
         self.memory = [] ## Z, A
         self.gradients = [] ## dW
-        self.eps = 1e-15
+
+
         self.loss = []  # store loss
         self.loss_tr = []  # store loss
         self.accuracy = []  # store accuracy
         self.accuracy_tr = []  # store accuracy
+
         self.total_it = 0
         self.name = name
-        self.opt = "basic"
+        self.opt = BasicOptim()
+        self.eps = 1e-15
 
         
     def add(self, layer: DenseLayer):
@@ -128,11 +82,6 @@ class Network:
             dA_prev, dW_curr, db_curr = layer.backward(dA_curr, W_curr, Z_curr, A_prev, act_name)
 
             self.gradients.append({'dW':dW_curr, 'db':db_curr})
-
-    def basic_update_wb(self, t: int, w: np.ndarray, dw: np.ndarray, b: np.ndarray, db: np.ndarray, lr: float):
-        w = w - lr * dw
-        b = b - lr * db
-        return w, b
 
     def _update(self, lr=0.01):
         """
@@ -201,71 +150,32 @@ class Network:
             shape = self.network[idx].neurons
         return self
     
-    def reset(self):
-        """
-        Reset model weight and bias, gradients, memory etc..
-        """
-
-        np.random.seed(99)
-        self.memory = []
-        self.gradients = []
-        self.loss = []
+    def reset_weights(self):
         self.params = []
-        self.accuracy = []
-        self.accuracy_tr = []
-        self.total_it = 0
         for i in range(len(self.architecture)):
-            bias = 0 if i >= len(self.architecture) - 1 else 1
             self.params.append({
                 'W':np.random.uniform(low=-1, high=1, 
                         size=(self.architecture[i]['output_dim'], 
                               self.architecture[i]['input_dim'])),
                 'b':np.zeros((1, self.architecture[i]['output_dim'])),
-                'opt':self.compile_opt()
+                'opt':deepcopy(self.opt)._update_wb
             })
-    
-    def reset_weights(self):
-        for i in range(len(self.architecture)):
-            bias = 0 if i >= len(self.architecture) - 1 else 1
-            self.params[i] = {
-                'W':np.random.uniform(low=-1, high=1, 
-                        size=(self.architecture[i]['output_dim'], 
-                              self.architecture[i]['input_dim'])),
-                'b':np.zeros((1, self.architecture[i]['output_dim'])),
-                'opt':self.compile_opt()
-            }
 
-    def compile(self, data, params, optimizer="basic"):
+    def compile(self, data, params, optimizer:BasicOptim=None):
         """
         Initialize model parameters depending of input shape and architecture
         """
         self.layerSize.insert(0, data.shape[1])
         self._init_architect(data)
-        if optimizer in self.supported_opt:
+        if isinstance(optimizer, BasicOptim):
             self.opt = optimizer
         if (len(params) == 0):
-            for i in range(len(self.architecture)):
-                bias = 0 if i >= len(self.architecture) - 1 else 1
-                self.params.append({
-                    'W':np.random.uniform(low=-1, high=1, 
-                            size=(self.architecture[i]['output_dim'], 
-                                self.architecture[i]['input_dim'])),
-                    'b':np.zeros((1, self.architecture[i]['output_dim'])),
-                    'opt':self.compile_opt()
-                })
+            self.reset_weights()
         else:
             for param in params:
                 self.params.append({
                     'W':param["W"],
                     'b':param["b"],
-                    'opt':self.compile_opt()
+                    'opt':deepcopy(self.opt)._update_wb
                 })
-            
-            # self.params = params
         return self
-
-    def compile_opt(self):
-        if self.opt == "basic":
-            return self.basic_update_wb
-        elif self.opt == "adam":
-            return AdamOptim()._update_wb

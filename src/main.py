@@ -20,6 +20,7 @@ from nn.network import Network
 from nn.dense import DenseLayer
 from nn.regularizer import *
 from utils.metrics import f1_score_, recall_score_, precision_score_
+from nn.optimizers import optimizer_dict
 
 
 def get_data(path):
@@ -41,6 +42,7 @@ def get_combs(minN, maxN, minL, maxL):
         combs += list(itertools.product(list(itertools.product(pow)), repeat=num_layer))
     return combs
 
+
 def clean(yml_file):
     yml_file["data"]["best_model"] = None
     for name in yml_file["models"]:
@@ -50,6 +52,7 @@ def clean(yml_file):
         yml_file["models"][name]["total_it"] = 0
     with open("models.yml", 'w') as outfile:
         yaml.dump(yml_file, outfile, default_flow_style=None)
+
 
 def reset(minN, maxN, minL, maxL, output, act_output):
     """
@@ -82,7 +85,7 @@ def reset(minN, maxN, minL, maxL, output, act_output):
     return models
 
 
-def compile_model(yml_model, X, optimizer="basic"):
+def compile_model(yml_model, X, opt_name="basic"):
     """
     create the Network class depending on the structure
     """
@@ -93,17 +96,17 @@ def compile_model(yml_model, X, optimizer="basic"):
     params = []
     for el in yml_model["params"]:
         params.append({"W":np.array(el["W"]), "b":np.array(el["b"])})
-    model.compile(X, params, optimizer=optimizer)
+    model.compile(X, params, optimizer=optimizer_dict[opt_name]())
     return model
 
 
-def compile_models(yml_file, X, opt="basic"):
+def compile_models(yml_file, X, opt_name="basic"):
     """
     create all model
     """
     models = []
     for key, model in yml_file["models"].items():
-        models.append(compile_model(model, X, opt))
+        models.append(compile_model(model, X, opt_name))
     return models
 
 
@@ -182,13 +185,13 @@ def test_opt(yml_file, X, Y, max_iter, lr):
         "it":range(max_iter)
     }
     for model_name in tqdm(yml_file["models"], leave=True):
-        for opt in ["basic", "adam"]:
-            model = compile_model(yml_file["models"][model_name], X, optimizer=opt)
+        for opt_name in ["basic", "adam"]:
+            model = compile_model(yml_file["models"][model_name], X, opt_name=opt_name)
             model.train(train=[X_train, Y_train.astype(int)], test=[X_test, Y_test.astype(int)], epochs=max_iter, lr=lr)
-            data[f"accuracy_{opt}"] = model.accuracy
-            data[f"accuracy_tr_{opt}"] = model.accuracy_tr
-            data[f"loss_{opt}"] = model.loss
-            data[f"loss_tr_{opt}"] = model.loss_tr
+            data[f"accuracy_{opt_name}"] = model.accuracy
+            data[f"accuracy_tr_{opt_name}"] = model.accuracy_tr
+            data[f"loss_{opt_name}"] = model.loss
+            data[f"loss_tr_{opt_name}"] = model.loss_tr
     
         plt.figure()
         last = data[f"accuracy_adam"][-1]
@@ -206,7 +209,7 @@ def main(argv):
         sys.exit(2)
     output = 2
     learning_rate, max_iter, max_layers, max_neurons, min_layers, min_neurons = 0.01, 100, 1, 1, 1, 1
-    optimizer = "basic"
+    opt_name = "basic"
     file = "../ressources/data.csv"
 
     with open("models.yml", "r") as stream:
@@ -228,7 +231,7 @@ def main(argv):
         if (opt in ['--minN']):
             min_neurons = int(arg)
         if opt in ['-o']:
-            optimizer = str(arg)
+            opt_name = str(arg)
 
     X, Y, Y_n = get_data(file)
     np.random.seed(1)
@@ -240,7 +243,7 @@ def main(argv):
         if opt in ['--reset']:
             reset(min_neurons, max_neurons, min_layers, max_layers, output, "softmax")
         if opt in ['--train']:
-            models = compile_models(yml_file, X, opt=optimizer)
+            models = compile_models(yml_file, X, opt_name=opt_name)
             train(yml_file, models, X, Y_n, max_iter, learning_rate)
             find_best(yml_file, max_iter)
             with open("models.yml", 'w') as outfile:
