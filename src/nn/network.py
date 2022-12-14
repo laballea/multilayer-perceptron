@@ -14,12 +14,6 @@ class Network:
         self.network: list[DenseLayer] = [] ## layers
         self.architecture = [] ## mapping input neurons --> output neurons
 
-        # self.params = [] ## W, optimizer
-
-        # self.memory = [] ## Z, A
-        # self.gradients = [] ## dW
-
-
         self.loss = []  # store loss
         self.loss_tr = []  # store loss
         self.accuracy = []  # store accuracy
@@ -91,20 +85,21 @@ class Network:
 
     def train(self, train, test, epochs, lr=0.01):
         """
-        Train the model using SGD
+        Train the model using GD
         """
         X_train, Y_train = train[0], train[1]
         X_test, Y_test = test[0], test[1]
         for i in tqdm(range(epochs), leave=False):
-            yhat_train = self._forwardprop(X_train)  # calculate prediction
-            self.accuracy_tr.append(self._get_accuracy(predicted=yhat_train, actual=Y_train))  # get accuracy
-            self.loss_tr.append(self._calculate_loss(predicted=yhat_train, actual=Y_train))  # get loss
+            yhat_train = self._forwardprop(X_train)  # prediction on train set
+            yhat_test = self._forwardprop(X_test, save=False)  # prediction on test set
+
+            #get accuracy and crossentropy on respectively train and test set, and save them
+            self.accuracy_tr.append(self._get_accuracy(predicted=yhat_train, actual=Y_train))
+            self.loss_tr.append(self._calculate_loss(predicted=yhat_train, actual=Y_train))
+            self.accuracy.append(self._get_accuracy(predicted=yhat_test, actual=Y_test))
+            self.loss.append(self._calculate_loss(predicted=yhat_test, actual=Y_test))
+            
             self._backprop(predicted=yhat_train, actual=Y_train)
-
-            yhat_test = self._forwardprop(X_test, save=False)  # calculate prediction for test
-            self.accuracy.append(self._get_accuracy(predicted=yhat_test, actual=Y_test))  # get accuracy
-            self.loss.append(self._calculate_loss(predicted=yhat_test, actual=Y_test))  # get loss
-
             self._update(lr=lr)
             self.total_it += 1
             time.sleep(0.03)
@@ -113,59 +108,28 @@ class Network:
         """
         Initialize model architecture
         """
-        shape = data.shape[1]
+        input_shape = data.shape[1]
         for idx, layer in enumerate(self.network):
-            self.architecture.append({'input_dim':shape, 
+            self.architecture.append({'input_dim':input_shape, 
                                     'output_dim':self.network[idx].neurons,
                                     'activation':layer.act_name})
-            layer.compile(input_dim=shape, optimizer=self.opt)
-            shape = self.network[idx].neurons
+            layer.compile(input_dim=input_shape, optimizer=self.opt)
+            input_shape = self.network[idx].neurons
         return self
-    
-    # def reset_weights(self):
-    #     self.params = []
-    #     for i in range(len(self.architecture)):
-    #         self.params.append({
-    #             'W':np.random.uniform(low=-1, high=1, 
-    #                     size=(self.architecture[i]['output_dim'], 
-    #                           self.architecture[i]['input_dim'])),
-    #             'b':np.zeros((1, self.architecture[i]['output_dim'])),
-    #             'opt':deepcopy(self.opt)._update_wb
-    #         })
 
     def compile(self, data, params, optimizer:BasicOptim=None):
         """
         Initialize model parameters depending of input shape and architecture
         """
         self.layerSize.insert(0, data.shape[1])
+
         if isinstance(optimizer, BasicOptim):
             self.opt = optimizer
         self._init_architect(data)
-
         if params is not None:
             self.set_params(params)
-        # if (len(params) == 0):
-        #     self.reset_weights()
-        # else:
-        #     for param in params:
-        #         self.params.append({
-        #             'W':param["W"],
-        #             'b':param["b"],
-        #             'opt':deepcopy(self.opt)._update_wb
-        #         })
+
         return self
-
-    def get_params(self):
-        params = []
-        for layer in self.network:
-            params.append({"W":layer.W.astype(float).tolist(), "b": layer.b.astype(float).tolist()})
-        return params
-
-    def set_params(self, params):
-        for param, layer in zip(params, self.network):
-            layer.W = np.array(param["W"])
-            layer.b = np.array(param["b"])
-            # params.append({"W":layer.W, "b": layer.b})
 
     def add(self, layer: DenseLayer):
         """
@@ -173,3 +137,29 @@ class Network:
         """
         self.network.append(layer)
         self.layerSize.append(layer.neurons)
+
+    def get_params(self):
+        """
+        Returns all weight and bias of layer contained in network formatted in a list
+        """
+        params = []
+        for layer in self.network:
+            params.append({"W":layer.W.astype(float).tolist(), "b": layer.b.astype(float).tolist()})
+        return params
+
+    def set_params(self, params):
+        """
+        Set all weight and bias of layer contained in network
+        """
+        for param, layer in zip(params, self.network):
+            layer.W = np.array(param["W"])
+            layer.b = np.array(param["b"])
+
+    def update_yaml(self, previous_yaml: dict):
+        """
+        Given a dict, update accuracy, loss, total iteration and weights and bias
+        """
+        previous_yaml["accuracy_hist"] += self.accuracy
+        previous_yaml["loss_hist"] += self.loss
+        previous_yaml["total_it"] += int(self.total_it)
+        previous_yaml["params"] = self.get_params()

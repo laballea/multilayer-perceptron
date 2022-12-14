@@ -51,7 +51,7 @@ class DenseLayer:
         db = np.sum(dZ, axis=0, keepdims=True)
         dA = np.dot(dZ, self.W)
 
-        self.dW, self.db = dW , db #+ self.reg.regularize(W_curr)
+        self.dW, self.db = dW, db #+ self.reg.regularize(W_curr)
         return dA
     
     def update(self, total_it:int, lr: float):

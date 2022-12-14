@@ -117,10 +117,7 @@ def train(yml_file, models: list[Network], X, Y, max_iter, lr=0.01):
         model.train(train=[X_train, Y_train.astype(int)], test=[X_test, Y_test.astype(int)], epochs=max_iter, lr=lr)
         
         time.sleep(0.5)
-        yml_model["accuracy_hist"] += model.accuracy
-        yml_model["loss_hist"] += model.loss
-        yml_model["total_it"] += int(model.total_it)
-        yml_model["params"] = model.get_params()
+        model.update_yaml(yml_model)
     find_best(yml_file)
 
 def predict(yml_file, X, Y):
@@ -169,23 +166,31 @@ def test_opt(yml_file, X, Y, max_iter, lr):
     X_train, Y_train, X_test, Y_test = data_spliter(X, Y, 0.75)
     X_train = normalize(X_train)
     X_test = normalize(X_test)
-    data = {
-        "it":range(max_iter)
-    }
+    accuracy = {"iteration":range(max_iter)}
+    loss = {"iteration":range(max_iter)}
     for model_name in tqdm(yml_file["models"], leave=True):
+        fig, axs = plt.subplots(nrows=1, ncols=2, figsize=(16, 8))
         for opt_name in ["basic", "adam"]:
             model = compile_model(yml_file["models"][model_name], X, opt_name=opt_name)
             model.train(train=[X_train, Y_train.astype(int)], test=[X_test, Y_test.astype(int)], epochs=max_iter, lr=lr)
-            data[f"accuracy_{opt_name}"] = model.accuracy
-            data[f"accuracy_tr_{opt_name}"] = model.accuracy_tr
-            data[f"loss_{opt_name}"] = model.loss
-            data[f"loss_tr_{opt_name}"] = model.loss_tr
-    
-        plt.figure()
-        last = data[f"accuracy_adam"][-1]
-        plt.title(f"model_name accuracy_adam {last}")
-        sns.lineplot(x='it', y='value', hue='variable', data=pd.melt(pd.DataFrame(data), ['it']))
-        plt.ylabel("accuracy")
+            accuracy[f"accuracy_{opt_name}"] = model.accuracy
+            accuracy[f"accuracy_tr_{opt_name}"] = model.accuracy_tr
+            loss[f"loss_{opt_name}"] = model.loss
+            loss[f"loss_tr_{opt_name}"] = model.loss_tr
+
+        best_accuracy_ad = accuracy[f"accuracy_adam"][-1]
+        best_accuracy_basic = accuracy[f"accuracy_basic"][-1]
+        best_loss_ad = loss[f"loss_adam"][-1]
+        best_loss_basic = loss[f"loss_basic"][-1]
+
+        plt.title(f"{model_name}")
+        sns.lineplot(x='iteration', y='value', hue='variable', data=pd.melt(pd.DataFrame(accuracy), ['iteration']), ax=axs[0])
+        axs[0].set_title(f"adam: {best_accuracy_ad:.3f} basic: {best_accuracy_basic:.2f}")
+        axs[0].set_ylabel("accuracy")
+        sns.lineplot(x='iteration', y='value', hue='variable', data=pd.melt(pd.DataFrame(loss), ['iteration']), ax=axs[1])
+        axs[1].set_title(f"adam: {best_loss_ad:.3f} basic: {best_loss_basic:.2f}")
+        axs[1].set_ylabel("loss")
+        plt.xlabel("iteration")
     plt.show()
 
 

@@ -34,9 +34,9 @@ class AdamOptim(BasicOptim):
 
         ## rms beta 2
         # *** weights *** #
-        self.v_dw = self.beta2 * self.v_dw + (1-self.beta2) * (dw**2)
+        self.v_dw = self.beta2 * self.v_dw + (1 - self.beta2) * (dw**2)
         # *** biases *** #
-        self.v_db = self.beta2 * self.v_db + (1-self.beta2) * (db**2)
+        self.v_db = self.beta2 * self.v_db + (1 - self.beta2) * (db**2)
 
         ## bias correction
         m_dw_corr = self.m_dw / (1 - self.beta1**t)
