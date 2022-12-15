@@ -11,7 +11,6 @@ class DenseLayer:
     def __init__(self, neurons, act_name="relu", regularizer: Regularizer=Regularizer()):
         self.neurons = neurons
         self.act_name = act_name
-        self.reg = regularizer
 
         self.W = None
         self.b = None
@@ -23,11 +22,13 @@ class DenseLayer:
         self.db = None
 
         self.optimizer = None
+        self.regularizer = regularizer
     
     def compile(self, input_dim, optimizer):
         self.input_dim = input_dim
         self.activation = act_funct[self.act_name]
         self.activation_der = der_funct[self.act_name]
+        np.random.seed(1)
         self.W = np.random.uniform(low=-1, high=1, size=(self.neurons, input_dim))
         self.b = np.zeros((1, self.neurons))
         self.optimizer: BasicOptim = deepcopy(optimizer)
@@ -55,4 +56,5 @@ class DenseLayer:
         return dA
     
     def update(self, total_it:int, lr: float):
+        self.dW += self.regularizer.regularize(self.dW)
         self.W, self.b = self.optimizer._update_wb(total_it, self.W, self.dW.T, self.b, self.db, lr)

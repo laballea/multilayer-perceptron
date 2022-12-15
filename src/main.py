@@ -18,7 +18,7 @@ from nn.visualize import Visualize
 from utils.utils_ml import data_spliter, normalize
 from nn.network import Network
 from nn.dense import DenseLayer
-from nn.regularizer import *
+from nn import regularizer
 from utils.metrics import f1_score_, recall_score_, precision_score_
 from nn.optimizers import optimizer_dict
 
@@ -85,25 +85,25 @@ def reset(minN, maxN, minL, maxL, output, act_output):
     return models
 
 
-def compile_model(yml_model, X, opt_name="basic"):
+def compile_model(yml_model, X, opt_name="basic", lambda_:float=0):
     """
     create the Network class depending on the structure
     """
     model = Network(name=yml_model["name"])
     for neuron_nb in yml_model["structure"][:-1]:
-        model.add(DenseLayer(neuron_nb, act_name="tanh"))
+        model.add(DenseLayer(neuron_nb, act_name="tanh", regularizer=regularizer.l2(lambda_)))
     model.add(DenseLayer(yml_model["structure"][-1], act_name=yml_model["act_output"]))
-    model.compile(X, yml_model["params"], optimizer=optimizer_dict[opt_name]())
+    model.compile(X, params=yml_model["params"], optimizer=optimizer_dict[opt_name]())
     return model
 
 
-def compile_models(yml_file, X, opt_name="basic"):
+def compile_models(yml_file, X, opt_name="basic", lambda_: float=0):
     """
     create all model
     """
     models = []
     for model in yml_file["models"].values():
-        models.append(compile_model(model, X, opt_name))
+        models.append(compile_model(model, X, opt_name, lambda_))
     return models
 
 
@@ -162,6 +162,31 @@ def display(yml_file, X):
     Visualize().plot()
 
 
+def test_lambda(yml_file, X, Y, max_iter, lr):
+    X_train, Y_train, X_test, Y_test = data_spliter(X, Y, 0.75)
+    X_train = normalize(X_train)
+    X_test = normalize(X_test)
+    accuracy = {"iteration":range(max_iter)}
+    loss = {"iteration":range(max_iter)}
+    for model_name in tqdm(yml_file["models"], leave=True):
+        fig, axs = plt.subplots(nrows=1, ncols=2, figsize=(16, 8))
+        for lambda_ in [0, 1]:
+            model = compile_model(yml_file["models"][model_name], X, opt_name="basic", lambda_=lambda_)
+            model.train(train=[X_train, Y_train.astype(int)], test=[X_test, Y_test.astype(int)], epochs=max_iter, lr=lr)
+            accuracy[f"accuracy_{lambda_}"] = model.accuracy
+            accuracy[f"accuracy_tr_{lambda_}"] = model.accuracy_tr
+            loss[f"loss_{lambda_}"] = model.loss
+            loss[f"loss_tr_{lambda_}"] = model.loss_tr
+
+        plt.suptitle(f"{model_name}")
+        sns.lineplot(x='iteration', y='value', hue='variable', data=pd.melt(pd.DataFrame(accuracy), ['iteration']), ax=axs[0])
+        axs[0].set_ylabel("accuracy")
+        sns.lineplot(x='iteration', y='value', hue='variable', data=pd.melt(pd.DataFrame(loss), ['iteration']), ax=axs[1])
+        axs[1].set_ylabel("loss")
+        plt.xlabel("iteration")
+    plt.show()
+
+
 def test_opt(yml_file, X, Y, max_iter, lr):
     X_train, Y_train, X_test, Y_test = data_spliter(X, Y, 0.75)
     X_train = normalize(X_train)
@@ -171,7 +196,7 @@ def test_opt(yml_file, X, Y, max_iter, lr):
     for model_name in tqdm(yml_file["models"], leave=True):
         fig, axs = plt.subplots(nrows=1, ncols=2, figsize=(16, 8))
         for opt_name in ["basic", "adam"]:
-            model = compile_model(yml_file["models"][model_name], X, opt_name=opt_name)
+            model = compile_model(yml_file["models"][model_name], X, opt_name=opt_name, lambda_=3)
             model.train(train=[X_train, Y_train.astype(int)], test=[X_test, Y_test.astype(int)], epochs=max_iter, lr=lr)
             accuracy[f"accuracy_{opt_name}"] = model.accuracy
             accuracy[f"accuracy_tr_{opt_name}"] = model.accuracy_tr
@@ -183,7 +208,7 @@ def test_opt(yml_file, X, Y, max_iter, lr):
         best_loss_ad = loss[f"loss_adam"][-1]
         best_loss_basic = loss[f"loss_basic"][-1]
 
-        plt.title(f"{model_name}")
+        plt.suptitle(f"{model_name}")
         sns.lineplot(x='iteration', y='value', hue='variable', data=pd.melt(pd.DataFrame(accuracy), ['iteration']), ax=axs[0])
         axs[0].set_title(f"adam: {best_accuracy_ad:.3f} basic: {best_accuracy_basic:.2f}")
         axs[0].set_ylabel("accuracy")
@@ -196,7 +221,7 @@ def test_opt(yml_file, X, Y, max_iter, lr):
 
 def main(argv):
     try:
-        opts, args = getopt.getopt(argv, "f:l:r:o:", ["file=", "maxL=", "maxN=", "minL=", "minN=", "predict", "reset", "clean", "train", "display", "opt"])
+        opts, args = getopt.getopt(argv, "f:l:r:o:", ["file=", "maxL=", "maxN=", "minL=", "minN=", "predict", "reset", "clean", "train", "display", "opt", "lambda"])
     except getopt.GetoptError as inst:
         print(inst)
         sys.exit(2)
@@ -244,6 +269,8 @@ def main(argv):
             display(yml_file, X)
         if opt in ['--opt']:
             test_opt(yml_file, X, Y_n, max_iter, learning_rate)
+        if opt in ['--lambda']:
+            test_lambda(yml_file, X, Y_n, max_iter, learning_rate)
         if opt in ['--predict']:
             predict(yml_file, X, Y_n)
 
