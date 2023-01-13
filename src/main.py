@@ -91,7 +91,7 @@ def compile_model(yml_model, X, opt_name="basic", lambda_:float=0):
     """
     model = Network(name=yml_model["name"])
     for neuron_nb in yml_model["structure"][:-1]:
-        model.add(DenseLayer(neuron_nb, act_name="tanh", regularizer=regularizer.l2(lambda_)))
+        model.add(DenseLayer(neuron_nb, act_name="relu", regularizer=regularizer.l2(lambda_)))
     model.add(DenseLayer(yml_model["structure"][-1], act_name=yml_model["act_output"]))
     model.compile(X, params=yml_model["params"], optimizer=optimizer_dict[opt_name]())
     return model
@@ -170,7 +170,7 @@ def test_lambda(yml_file, X, Y, max_iter, lr):
     loss = {"iteration":range(max_iter)}
     for model_name in tqdm(yml_file["models"], leave=True):
         fig, axs = plt.subplots(nrows=1, ncols=2, figsize=(16, 8))
-        for lambda_ in [0, 1]:
+        for lambda_ in [1, 2]:
             model = compile_model(yml_file["models"][model_name], X, opt_name="basic", lambda_=lambda_)
             model.train(train=[X_train, Y_train.astype(int)], test=[X_test, Y_test.astype(int)], epochs=max_iter, lr=lr)
             accuracy[f"accuracy_{lambda_}"] = model.accuracy

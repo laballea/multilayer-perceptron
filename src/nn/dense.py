@@ -28,7 +28,7 @@ class DenseLayer:
         self.input_dim = input_dim
         self.activation = act_funct[self.act_name]
         self.activation_der = der_funct[self.act_name]
-        np.random.seed(1)
+        np.random.seed(3)
         self.W = np.random.uniform(low=-1, high=1, size=(self.neurons, input_dim))
         self.b = np.zeros((1, self.neurons))
         self.optimizer: BasicOptim = deepcopy(optimizer)
